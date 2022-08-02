@@ -1,6 +1,6 @@
 # Bowling Scoreboard Simulator 2018
 
- A 10-pin bowling scoring program, made for an assignment. Probably not overly useful for other people.
+ A 10-pin bowling scoring program, made for a job interview. Probably not overly useful for other people.
  
  It is written for Java 1.8 and uses the [json-simple](https://code.google.com/archive/p/json-simple/) library for JSON parsing. This is included, but you may need to add the library /lib/json-simple-1.1.1.jar to your build path.
 
