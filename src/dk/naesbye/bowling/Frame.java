@@ -3,7 +3,10 @@ package dk.naesbye.bowling;
 public final class Frame {
 	private static int framesLength, rollsInEleven;
 
-	private int roll1, roll2, hits, score;
+	private final int roll1;
+	private final int roll2;
+	private final int hits;
+	private int score;
 	private boolean isSpare, isStrike;
 
 	Frame(int roll1, int roll2) {

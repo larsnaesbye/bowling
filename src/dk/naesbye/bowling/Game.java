@@ -20,13 +20,12 @@ public final class Game {
 	 * Application spine for import/parsing, scoring, scoreboard, and output for
 	 * validation.
 	 */
-	private List<Frame> frames = new ArrayList<>();
+	private final List<Frame> frames = new ArrayList<>();
 	private String token = null;
-	private List<Integer> totalScores = new ArrayList<>();
-	private List<Integer> sums = new ArrayList<>();
+	private final List<Integer> sums = new ArrayList<>();
 
 	public Game() {
-		int addedScore = 0;
+		int addedScore;
 
 		String serviceEndpoint = "http://13.74.31.101/api/points";
 
@@ -37,22 +36,21 @@ public final class Game {
 		 * scoreboard for each frame.
 		 */
 
+		List<Integer> totalScores = new ArrayList<>();
 		for (int i = 0; i < rawFrames.length; i++) {
 			addFrame(rawFrames[i][0], rawFrames[i][1]);
 			totalScores.add(null); // make sure we have one for each element in rawFrames.
 
 			switch (i) {
-			case 0:
-				totalScores.set(i, frames.get(i).getScore());
-				break;
-			case 1:
-				addedScore = setScoreOnPreviousFrames(frames.get(i - 1), frames.get(i));
-				totalScores.set(i, addedScore + frames.get(i).getScore());
-				break;
-			default:
-				addedScore = setScoreOnPreviousFrames(frames.get(i - 2),frames.get(i - 1), frames.get(i));
-				totalScores.set(i, addedScore + frames.get(i).getScore());
-				break;
+				case 0 -> totalScores.set(i, frames.get(i).getScore());
+				case 1 -> {
+					addedScore = setScoreOnPreviousFrames(frames.get(0), frames.get(i));
+					totalScores.set(i, addedScore + frames.get(i).getScore());
+				}
+				default -> {
+					addedScore = setScoreOnPreviousFrames(frames.get(i - 2), frames.get(i - 1), frames.get(i));
+					totalScores.set(i, addedScore + frames.get(i).getScore());
+				}
 			}
 
 			printScoreboard(i);
@@ -78,27 +76,27 @@ public final class Game {
 
 	void printScoreboard(int frameNumber) {
 		// Print out the scoreboard in one line: Roll1 Roll2 (frameScore) = totalScore
-		String scoreboardLine = "#" + String.format("%02d", frameNumber + 1) + ": ";
+		StringBuilder scoreboardLine = new StringBuilder("#" + String.format("%02d", frameNumber + 1) + ": ");
 
 		for (int i = 0; i <= frameNumber; i++) {
 			if (frames.get(i).isStrike()) {
-				scoreboardLine += "X";
+				scoreboardLine.append("X");
 			} else {
-				scoreboardLine += frames.get(i).getRoll1();
+				scoreboardLine.append(frames.get(i).getRoll1());
 			}
 
 			if (frames.get(i).isSpare()) {
-				scoreboardLine += " /";
+				scoreboardLine.append(" /");
 			} else if (frames.get(i).isStrike()) {
-				scoreboardLine += " ";
+				scoreboardLine.append(" ");
 			} else {
-				scoreboardLine += " " + frames.get(i).getRoll2();
+				scoreboardLine.append(" ").append(frames.get(i).getRoll2());
 			}
 
-			scoreboardLine += " (" + frames.get(i).getScore() + ") ";
+			scoreboardLine.append(" (").append(frames.get(i).getScore()).append(") ");
 
 			if (i < frameNumber) {
-				scoreboardLine += "; ";
+				scoreboardLine.append("; ");
 			}
 		}
 		//scoreboardLine += "= " + totalScores.get(frameNumber);
@@ -152,10 +150,10 @@ public final class Game {
 			}
 
 			Scanner gameScan = new Scanner(serviceEndpointUrl.openStream());
-			String gameData = "";
+			StringBuilder gameData = new StringBuilder();
 
 			while (gameScan.hasNext()) {
-				gameData += gameScan.nextLine();
+				gameData.append(gameScan.nextLine());
 			}
 
 			System.out.println("Got following raw data from endpoint: " + gameData);
@@ -163,7 +161,7 @@ public final class Game {
 
 			// get token from JSON
 			JSONParser parser = new JSONParser();
-			JSONObject gameJsonObject = (JSONObject) parser.parse(gameData);
+			JSONObject gameJsonObject = (JSONObject) parser.parse(gameData.toString());
 			token = (String) gameJsonObject.get("token"); // we obtain the token from JSON
 
 			// get rolls (labeled as points) from JSON
@@ -221,7 +219,7 @@ public final class Game {
 			outputStreamWriter.flush();
 
 			int responseCode = validator.getResponseCode();
-			BufferedReader responseReader = null;
+			BufferedReader responseReader;
 
 			if (responseCode == 200) {
 				System.out.println("Token accepted (" + responseCode + ")");
