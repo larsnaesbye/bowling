@@ -1,252 +1,232 @@
-package dk.naesbye.bowling;
+package dk.naesbye.bowling
 
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.OutputStreamWriter;
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Scanner;
+import org.json.simple.JSONArray
+import org.json.simple.JSONObject
+import org.json.simple.parser.JSONParser
+import org.json.simple.parser.ParseException
+import java.io.BufferedReader
+import java.io.IOException
+import java.io.InputStreamReader
+import java.io.OutputStreamWriter
+import java.net.HttpURLConnection
+import java.net.URL
+import java.util.*
+import kotlin.system.exitProcess
 
-import org.json.simple.JSONArray;
-import org.json.simple.JSONObject;
-import org.json.simple.parser.JSONParser;
-import org.json.simple.parser.ParseException;
+class Game {
+    /**
+     * Application spine for import/parsing, scoring, scoreboard, and output for
+     * validation.
+     */
+    private val frames: MutableList<Frame> = ArrayList()
+    private var token: String? = null
+    private val sums: MutableList<Int?> = ArrayList()
 
-public final class Game {
-	/**
-	 * Application spine for import/parsing, scoring, scoreboard, and output for
-	 * validation.
-	 */
-	private final List<Frame> frames = new ArrayList<>();
-	private String token = null;
-	private final List<Integer> sums = new ArrayList<>();
-
-	public Game() {
-		int addedScore;
-
-		String serviceEndpoint = "http://13.74.31.101/api/points";
-
-		int[][] rawFrames = importFromService(serviceEndpoint); // get our score data from the API
-		System.out.println("\n*** Scoreboard ***");
-		/*
+    init {
+        var addedScore: Int
+        val serviceEndpoint = "http://13.74.31.101/api/points"
+        val rawFrames = importFromService(serviceEndpoint) // get our score data from the API
+        println("\n*** Scoreboard ***")
+        /*
 		 * Create and add one frame at the time while counting scores and updating
 		 * scoreboard for each frame.
 		 */
+        val totalScores: MutableList<Int?> = ArrayList()
+        for (i in rawFrames.indices) {
+            addFrame(rawFrames[i][0], rawFrames[i][1])
+            totalScores.add(null) // make sure we have one for each element in rawFrames.
+            when (i) {
+                0 -> totalScores[i] = frames[i].score
+                1 -> {
+                    addedScore = setScoreOnPreviousFrames(frames[0], frames[i])
+                    totalScores[i] = addedScore + frames[i].score
+                }
 
-		List<Integer> totalScores = new ArrayList<>();
-		for (int i = 0; i < rawFrames.length; i++) {
-			addFrame(rawFrames[i][0], rawFrames[i][1]);
-			totalScores.add(null); // make sure we have one for each element in rawFrames.
+                else -> {
+                    addedScore = setScoreOnPreviousFrames(frames[i - 2], frames[i - 1], frames[i])
+                    totalScores[i] = addedScore + frames[i].score
+                }
+            }
+            printScoreboard(i)
+        }
+        // do the cumulative sums in preparation for sending to API
+        var i = 0
+        while (i < totalScores.size && i < 10) {
 
-			switch (i) {
-				case 0 -> totalScores.set(i, frames.get(i).getScore());
-				case 1 -> {
-					addedScore = setScoreOnPreviousFrames(frames.get(0), frames.get(i));
-					totalScores.set(i, addedScore + frames.get(i).getScore());
-				}
-				default -> {
-					addedScore = setScoreOnPreviousFrames(frames.get(i - 2), frames.get(i - 1), frames.get(i));
-					totalScores.set(i, addedScore + frames.get(i).getScore());
-				}
-			}
+            // if there's an 11th pseudo-frame, its points are already added to the 10th
+            sums.add(null)
+            if (i == 0) {
+                sums[0] = frames[0].score
+            } else {
+                sums[i] = sums[i - 1]?.plus(frames[i].score)
+            }
+            i++
+        }
+        sendSumsToAPI(serviceEndpoint)
+    }
 
-			printScoreboard(i);
-		}
-		// do the cumulative sums in preparation for sending to API
-		for (int i = 0; i < totalScores.size() && i < 10; i++) {
-			// if there's an 11th pseudo-frame, its points are already added to the 10th
-			sums.add(null);
-			if (i == 0) {
-				sums.set(0, frames.get(0).getScore());
-			} else {
-				sums.set(i, sums.get(i - 1) + frames.get(i).getScore());
-			}
-		}
+    private fun addFrame(roll1: Int, roll2: Int) {
+        // constructs a new Frame from imported rolls and adds Frame to frames.
+        frames.add(Frame(roll1, roll2))
+    }
 
-		sendSumsToAPI(serviceEndpoint);
-	}
+    private fun printScoreboard(frameNumber: Int) {
+        // Print out the scoreboard in one line: Roll1 Roll2 (frameScore) = totalScore
+        val scoreboardLine = StringBuilder("#" + String.format("%02d", frameNumber + 1) + ": ")
+        for (i in 0..frameNumber) {
+            if (frames[i].isStrike) {
+                scoreboardLine.append("X")
+            } else {
+                scoreboardLine.append(frames[i].roll1)
+            }
+            if (frames[i].isSpare) {
+                scoreboardLine.append(" /")
+            } else if (frames[i].isStrike) {
+                scoreboardLine.append(" ")
+            } else {
+                scoreboardLine.append(" ").append(frames[i].roll2)
+            }
+            scoreboardLine.append(" (").append(frames[i].score).append(") ")
+            if (i < frameNumber) {
+                scoreboardLine.append("; ")
+            }
+        }
+        //scoreboardLine += "= " + totalScores.get(frameNumber);
+        println(scoreboardLine)
+    }
 
-	void addFrame(int roll1, int roll2) {
-		// constructs a new Frame from imported rolls and adds Frame to frames.
-		frames.add(new Frame(roll1, roll2));
-	}
+    private fun setScoreOnPreviousFrames(prevFrame: Frame, currFrame: Frame): Int {
+        // adds points to the score of the previous Frame if it was a strike/spare.
+        if (prevFrame.isStrike) {
+            prevFrame.score = prevFrame.hits + currFrame.hits
+            return currFrame.hits
+        }
+        if (prevFrame.isSpare) {
+            prevFrame.score = prevFrame.hits + currFrame.roll1
+            return currFrame.roll1
+        }
+        return 0
+    }
 
-	void printScoreboard(int frameNumber) {
-		// Print out the scoreboard in one line: Roll1 Roll2 (frameScore) = totalScore
-		StringBuilder scoreboardLine = new StringBuilder("#" + String.format("%02d", frameNumber + 1) + ": ");
+    private fun setScoreOnPreviousFrames(twoPrevFrame: Frame, prevFrame: Frame, currFrame: Frame): Int {
+        // as above, but handles the rare occasion of a triple strike
+        if (twoPrevFrame.isStrike && prevFrame.isStrike) {
+            twoPrevFrame.score = twoPrevFrame.hits + prevFrame.hits + currFrame.roll1
+            prevFrame.score = prevFrame.hits + currFrame.hits
+            return currFrame.hits
+        }
+        if (prevFrame.isStrike) {
+            prevFrame.score = prevFrame.hits + currFrame.hits
+            return currFrame.hits
+        }
+        if (prevFrame.isSpare) {
+            prevFrame.score = prevFrame.hits + currFrame.roll1
+            return currFrame.roll1
+        }
+        return 0
+    }
 
-		for (int i = 0; i <= frameNumber; i++) {
-			if (frames.get(i).isStrike()) {
-				scoreboardLine.append("X");
-			} else {
-				scoreboardLine.append(frames.get(i).getRoll1());
-			}
-
-			if (frames.get(i).isSpare()) {
-				scoreboardLine.append(" /");
-			} else if (frames.get(i).isStrike()) {
-				scoreboardLine.append(" ");
-			} else {
-				scoreboardLine.append(" ").append(frames.get(i).getRoll2());
-			}
-
-			scoreboardLine.append(" (").append(frames.get(i).getScore()).append(") ");
-
-			if (i < frameNumber) {
-				scoreboardLine.append("; ");
-			}
-		}
-		//scoreboardLine += "= " + totalScores.get(frameNumber);
-		System.out.println(scoreboardLine);
-	}
-
-	private int setScoreOnPreviousFrames(Frame prevFrame, Frame currFrame) {
-		// adds points to the score of the previous Frame if it was a strike/spare.
-		if (prevFrame.isStrike()) {
-			prevFrame.setScore(prevFrame.getHits() + currFrame.getHits());
-			return currFrame.getHits();
-		}
-		if (prevFrame.isSpare()) {
-			prevFrame.setScore(prevFrame.getHits() + currFrame.getRoll1());
-			return currFrame.getRoll1();
-		}
-		return 0;
-	}
-	private int setScoreOnPreviousFrames(Frame twoPrevFrame,Frame prevFrame, Frame currFrame) {
-		// as above, but handles the rare occasion of a triple strike
-		if (twoPrevFrame.isStrike() && prevFrame.isStrike()) {
-			twoPrevFrame.setScore(twoPrevFrame.getHits() + prevFrame.getHits() + currFrame.getRoll1());
-			prevFrame.setScore(prevFrame.getHits() + currFrame.getHits());
-			return currFrame.getHits();
-		}
-		
-		if (prevFrame.isStrike()) {
-			prevFrame.setScore(prevFrame.getHits() + currFrame.getHits());
-			return currFrame.getHits();
-		}
-		if (prevFrame.isSpare()) {
-			prevFrame.setScore(prevFrame.getHits() + currFrame.getRoll1());
-			return currFrame.getRoll1();
-		}
-		return 0;
-	}
-	int[][] importFromService(String serviceEndpoint) {
-		/*
+    private fun importFromService(serviceEndpoint: String?): Array<IntArray> {
+        /*
 		 * Combined method. Connects to data provider, parses JSON, sets token and
 		 * returns game rolls. TODO: Move JSON parsing to separate method.
 		 */
-		try {
-			URL serviceEndpointUrl = new URL(serviceEndpoint);
-			HttpURLConnection conn = (HttpURLConnection) serviceEndpointUrl.openConnection();
+        return try {
+            val serviceEndpointUrl = URL(serviceEndpoint)
+            val conn = serviceEndpointUrl.openConnection() as HttpURLConnection
+            conn.requestMethod = "GET"
+            val responsecode = conn.responseCode
+            if (responsecode != 200) {
+                throw RuntimeException("Can't get game from service!\nHTTP error: $responsecode")
+            }
+            val gameScan = Scanner(serviceEndpointUrl.openStream())
+            val gameData = StringBuilder()
+            while (gameScan.hasNext()) {
+                gameData.append(gameScan.nextLine())
+            }
+            println("Got following raw data from endpoint: $gameData")
+            gameScan.close()
 
-			conn.setRequestMethod("GET");
-			int responsecode = conn.getResponseCode();
+            // get token from JSON
+            val parser = JSONParser()
+            val gameJsonObject = parser.parse(gameData.toString()) as JSONObject
+            token = gameJsonObject["token"] as String? // we obtain the token from JSON
 
-			if (responsecode != 200) {
-				throw new RuntimeException("Can't get game from service!\nHTTP error: " + responsecode);
-			}
+            // get rolls (labeled as points) from JSON
+            val pointsArray = gameJsonObject["points"] as JSONArray
+            val resultArray = Array(pointsArray.size) { IntArray(2) }
+            for (i in pointsArray.indices) {
+                val pointsObject = pointsArray[i] as JSONArray
+                val pointsStringArray = pointsObject.toString()
+                val items = pointsStringArray.replace("\\[".toRegex(), "").replace("\\]".toRegex(), "")
+                    .replace("\\s".toRegex(), "")
+                    .split(",".toRegex()).dropLastWhile { it.isEmpty() }.toTypedArray()
+                val results = IntArray(items.size)
+                for (j in items.indices) {
+                    try {
+                        results[j] = items[j].toInt()
+                    } catch (e: NumberFormatException) {
+                        throw RuntimeException("Bad data in frame")
+                    }
+                }
+                resultArray[i] = results
+            }
+            resultArray
+        } catch (e: IOException) {
+            throw RuntimeException("Invalid URL or data format")
+        } catch (e: ParseException) {
+            throw RuntimeException("Invalid URL or data format")
+        }
+    }
 
-			Scanner gameScan = new Scanner(serviceEndpointUrl.openStream());
-			StringBuilder gameData = new StringBuilder();
+    private fun sendSumsToAPI(serviceEndpoint: String) {
+        val jsonToSend = JSONObject()
+        jsonToSend["token"] = token
+        val sumsArray = JSONArray()
 
-			while (gameScan.hasNext()) {
-				gameData.append(gameScan.nextLine());
-			}
+        // insert our cumulative scores into the JSON points array
+        sumsArray.addAll(sums)
+        jsonToSend["points"] = sumsArray
+        println("******************\n")
+        println("Sending to validator: $jsonToSend")
 
-			System.out.println("Got following raw data from endpoint: " + gameData);
-			gameScan.close();
+        // add our token and sums as parameters to the final URL to send to the API
+        val fullPostUrl = "$serviceEndpoint?token=$token&points=$sumsArray"
+        try {
+            val serviceEndpointUrl = URL(fullPostUrl)
+            val validator = serviceEndpointUrl.openConnection() as HttpURLConnection
+            validator.doOutput = true
+            validator.requestMethod = "POST"
+            validator.connect()
+            val outputStreamWriter = OutputStreamWriter(validator.outputStream)
+            outputStreamWriter.write(jsonToSend.toString())
+            outputStreamWriter.flush()
+            val responseCode = validator.responseCode
+            val responseReader: BufferedReader
+            if (responseCode == 200) {
+                println("Token accepted ($responseCode)")
+                responseReader = BufferedReader(InputStreamReader(validator.inputStream))
+            } else {
+                println("Token/request rejected ($responseCode)")
+                responseReader = BufferedReader(InputStreamReader(validator.errorStream))
+                exitProcess(-1) // if token or connection to validator fails, bail out.
+            }
+            val responseStringBuilder = StringBuilder()
+            var output: String?
+            while (responseReader.readLine().also { output = it } != null) {
+                responseStringBuilder.append(output)
+            }
 
-			// get token from JSON
-			JSONParser parser = new JSONParser();
-			JSONObject gameJsonObject = (JSONObject) parser.parse(gameData.toString());
-			token = (String) gameJsonObject.get("token"); // we obtain the token from JSON
-
-			// get rolls (labeled as points) from JSON
-			JSONArray pointsArray = (JSONArray) gameJsonObject.get("points");
-			int[][] resultArray = new int[pointsArray.size()][2];
-
-			for (int i = 0; i < pointsArray.size(); i++) {
-				JSONArray pointsObject = (JSONArray) pointsArray.get(i);
-				String pointsStringArray = pointsObject.toString();
-				String[] items = pointsStringArray.replaceAll("\\[", "").replaceAll("\\]", "").replaceAll("\\s", "")
-						.split(",");
-
-				int[] results = new int[items.length];
-
-				for (int j = 0; j < items.length; j++) {
-					try {
-						results[j] = Integer.parseInt(items[j]);
-					} catch (NumberFormatException e) {
-						throw new RuntimeException("Bad data in frame");
-					}
-				}
-				resultArray[i] = results;
-			}
-			return resultArray;
-		} catch (IOException | ParseException e) {
-			throw new RuntimeException("Invalid URL or data format");
-		}
-	}
-
-	void sendSumsToAPI(String serviceEndpoint) {
-		JSONObject jsonToSend = new JSONObject();
-		jsonToSend.put("token", token);
-		JSONArray sumsArray = new JSONArray();
-
-		// insert our cumulative scores into the JSON points array
-		sumsArray.addAll(sums);
-
-		jsonToSend.put("points", sumsArray);
-		System.out.println("******************\n");
-		System.out.println("Sending to validator: " + jsonToSend);
-
-		// add our token and sums as parameters to the final URL to send to the API
-		String fullPostUrl = serviceEndpoint + "?token=" + token + "&points=" + sumsArray;
-
-		try {
-			URL serviceEndpointUrl = new URL(fullPostUrl);
-			HttpURLConnection validator = (HttpURLConnection) serviceEndpointUrl.openConnection();
-			validator.setDoOutput(true);
-			validator.setRequestMethod("POST");
-
-			validator.connect();
-
-			OutputStreamWriter outputStreamWriter = new OutputStreamWriter(validator.getOutputStream());
-			outputStreamWriter.write(jsonToSend.toString());
-			outputStreamWriter.flush();
-
-			int responseCode = validator.getResponseCode();
-			BufferedReader responseReader;
-
-			if (responseCode == 200) {
-				System.out.println("Token accepted (" + responseCode + ")");
-				responseReader = new BufferedReader(new InputStreamReader(validator.getInputStream()));
-			} else {
-				System.out.println("Token/request rejected (" + responseCode + ")");
-				responseReader = new BufferedReader(new InputStreamReader(validator.getErrorStream()));
-				System.exit(-1); // if token or connection to validator fails, bail out.
-			}
-
-			StringBuilder responseStringBuilder = new StringBuilder();
-			String output;
-			while ((output = responseReader.readLine()) != null) {
-				responseStringBuilder.append(output);
-			}
-
-			// Quick hack. Doesn't actually parse result as JSON, just checks for presence of "true".
-			boolean validates = responseStringBuilder.toString().contains("true");
-
-			if (validates) {
-				System.out.println("Game scores validated successfully.");
-			} else {
-				System.out.println("Game scores didn't validate.");
-				System.out.println(responseStringBuilder);
-			}
-		} catch (IOException e) {
-			throw new RuntimeException("Error in posting data to endpoint!");
-		}
-	}
+            // Quick hack. Doesn't actually parse result as JSON, just checks for presence of "true".
+            val validates = responseStringBuilder.toString().contains("true")
+            if (validates) {
+                println("Game scores validated successfully.")
+            } else {
+                println("Game scores didn't validate.")
+                println(responseStringBuilder)
+            }
+        } catch (e: IOException) {
+            throw RuntimeException("Error in posting data to endpoint!")
+        }
+    }
 }

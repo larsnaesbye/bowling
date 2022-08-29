@@ -1,7 +1,8 @@
-package dk.naesbye.bowling;
+package dk.naesbye.bowling
 
-public class Main {
-	public static void main(String[] args) {
-		Game bowlingGame = new Game(); // Everything we do is within Game.
-	}
+object Main {
+    @JvmStatic
+    fun main(args: Array<String>) {
+        val bowlingGame = Game() // Everything we do is within Game.
+    }
 }
